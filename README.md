@@ -1,27 +1,68 @@
 # GLM 5 provider for the Vercel AI SDK
 
-This example shows the current Vercel AI SDK OpenAI-compatible provider shape for GLM model IDs. It is not a Zhipu or Vercel package. **[ArgoLink](https://argolink.io/gh-glm-5-vercel-provider) is the configured compatible base.** Last checked: 2026-10-07.
+This example uses the maintained Vercel AI SDK OpenAI-compatible adapter for GLM model IDs. It is not a Zhipu or Vercel provider package. **[ArgoLink](https://argolink.io/gh-glm-5-vercel-provider) is the configured compatible base.** Checked 2026-10-07.
 
-## Install and run
+## Why `@ai-sdk/openai-compatible`
 
-Use a current Node.js release, then install the package versions that your application has approved. The example uses @ai-sdk/openai-compatible, ai, and zod. Set OPENAI_API_KEY in the environment; the provider factory has no default key. Run the type checker before a network call.
+The current AI SDK factory is `createOpenAICompatible` from `@ai-sdk/openai-compatible`. It accepts `baseURL` and `apiKey` and owns request serialization for the OpenAI Chat Completions contract. This repository intentionally does not invent a `@ai-sdk/glm` package or translate provider-specific wire fields.
 
-src/provider.ts calls createOpenAICompatible with baseURL https://argolink.io/v1 and exposes the two catalog IDs used by the example. The package's provider function is intentionally small so the SDK owns request serialization. Do not assume that a provider factory supports every AI SDK feature until the target model and endpoint are tested.
+```ts
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+
+const provider = createOpenAICompatible({
+  name: 'argolink',
+  baseURL: 'https://argolink.io/v1',
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const model = provider('glm-5.3');
+```
+
+The actual factory lives in [`src/provider.ts`](src/provider.ts) and refuses an empty key at the execution boundary. Keys belong in the environment or a secret manager, never in source or an issue.
+
+## Verified model facts
+
+The live 2026-10-07 catalog records both models on `POST /v1/chat/completions`:
+
+| Model | Context / output | Reasoning values | Default | Effective rate |
+| --- | ---: | --- | --- | ---: |
+| `glm-5.3` | 1,000,000 / 128,000 tokens | `low`, `high`, `max` | `max` | $1.12/M input, $3.52/M output |
+| `glm-5.2` | 1,000,000 / 128,000 tokens | `high`, `max` | `max` | $1.12/M input, $3.52/M output |
+
+The catalog says GLM 5.3 always thinks and aliases `medium` to `high` and `xhigh` to `max`; GLM 5.2 turns thinking off with `reasoning_effort: none`. Cached input is $0.208/M for both in the snapshot. Re-read the model page before budgeting; `src/FACTS.md` records the source date and caveats.
+
+These are catalog facts for the configured route, not universal Zhipu facts. Verify tools, streaming events, structured output, usage, image input, timeout, and error parsing independently for your chosen SDK version.
 
 ## Examples
 
-src/example.ts covers generateText and streamText and attaches a local weather tool. The tool returns a fake value so the file demonstrates the schema without an external service. A real tool must validate input, enforce a timeout, and protect side effects. Tool support depends on the selected model; check the model page and response trace.
+[`src/example.ts`](src/example.ts) exports `runExamples` and covers both `generateText` and `streamText`. It attaches a local Zod-validated weather fixture to `generateText`; it does not call an external weather service. The module executes only when run directly and requires `OPENAI_API_KEY`.
 
-The compatibility layer is not a video client. For image or asynchronous video, use that service's own request contract and lifecycle. Do not send a video body through generateText. A stream ending early is an application error to record; it is not permission to replay a side-effecting tool automatically.
+```bash
+npm install
+npm run check
+npm test
+OPENAI_API_KEY='replace-with-a-development-key' node --experimental-strip-types src/example.ts
+```
 
-## Model and price facts
+The test and type-check commands make no provider request. Run the example only after checking the live catalog, selecting a budget, and deciding how tool side effects are authorized. A stream ending early is an application error to record; it is not permission to replay a state-changing tool.
 
-The live ArgoLink catalog is authoritative for GLM 5.3/5.2 IDs, context, output, reasoning efforts, and effective prices. This repository does not duplicate a price table because a stale number is worse than a link. Record the catalog revision in your deployment notes. Use a neutral base and key if you point the provider at a different compatible service.
+## Model boundaries
 
-## Validation
+The adapter is not a video client. Image generation/editing and asynchronous video use separate endpoints and input limits; use their model-specific clients. Do not send a video body through `generateText`. A model ID being present in the catalog does not guarantee that every AI SDK feature is supported through the same wire contract.
 
-Run npm test and npm run check. The test only imports the factory and checks the model list; it makes no request. A real SDK version lock and endpoint smoke test must happen in your application CI with a safe test model. Keep errors, usage, and response IDs in private telemetry.
+## Operational checklist
 
-## FAQ
+- Keep `OPENAI_API_KEY` outside the repository and redact Authorization, signed URLs, and prompts containing secrets.
+- Use `https://argolink.io/v1` and the exact model ID; do not append `/v1` twice.
+- Set timeouts and a descriptive `User-Agent` in any lower-level HTTP client.
+- Record model, reasoning setting, response ID, usage, and catalog date for each run.
+- Bound tool calls and only run independent functions in parallel; protect writes with approval or idempotency.
+- If a stream or request times out after a side effect may have been accepted, reconcile the request ID before retrying.
 
-**Is this an official provider?** No. **Does it support streamText?** The example exercises the SDK path; validate your chosen model before production. **Can tools be parallel?** Only when the functions are independent and bounded. **Why use an OpenAI-compatible adapter?** It avoids a fake provider package while using the maintained AI SDK transport. **Where is the API key?** OPENAI_API_KEY in the host environment.
+## Sources and validation
+
+The package versions are locked in [`package-lock.json`](package-lock.json). Current primary references: [AI SDK OpenAI-compatible provider](https://ai-sdk.dev/providers/community-providers/openai-compatible) · [ArgoLink model list](https://argolink.io/v1/models) · [ArgoLink model pages](https://argolink.io/en/models).
+
+```bash
+npm test
+npm run check
+```
